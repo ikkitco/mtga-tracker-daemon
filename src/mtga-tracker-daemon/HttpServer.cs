@@ -186,11 +186,40 @@ namespace MTGATrackerDaemon
                         var inventoryServiceWrapper = GetInventoryServiceWrapper(assemblyImage);
                         var inventory = inventoryServiceWrapper["m_inventory"];
 
+                        // [MTGA exporter patch] Also return every plain number field on the
+                        // inventory object (wildcards, vault progress, ...).
+                        // Only non-static, non-constant primitives are read - no pointers followed.
+                        var fields = new Dictionary<string, object>();
+                        try
+                        {
+                            object invObj = inventory;
+                            if (invObj is ManagedClassInstance inv)
+                            {
+                                {
+                                    // TypeDefinition.Fields already includes fields from parent types
+                                    foreach (var f in inv.TypeDefinition.Fields)
+                                    {
+                                        if (f == null || string.IsNullOrEmpty(f.Name) || fields.ContainsKey(f.Name)) continue;
+                                        if (f.TypeInfo.IsStatic || f.TypeInfo.IsConstant) continue;
+                                        var tc = f.TypeInfo.TypeCode;
+                                        if (tc != HackF5.UnitySpy.Detail.TypeCode.I4 && tc != HackF5.UnitySpy.Detail.TypeCode.U4 &&
+                                            tc != HackF5.UnitySpy.Detail.TypeCode.I8 && tc != HackF5.UnitySpy.Detail.TypeCode.U8 &&
+                                            tc != HackF5.UnitySpy.Detail.TypeCode.I2 && tc != HackF5.UnitySpy.Detail.TypeCode.U2 &&
+                                            tc != HackF5.UnitySpy.Detail.TypeCode.R4 && tc != HackF5.UnitySpy.Detail.TypeCode.R8 &&
+                                            tc != HackF5.UnitySpy.Detail.TypeCode.BOOLEAN) continue;
+                                        try { fields[f.Name] = inv.GetValue<object>(f.Name); } catch { }
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+
                         TimeSpan ts = (DateTime.Now - startTime);
                         var inventoryResponse = new InventoryResponseData
                         {
                             Gems = inventory["gems"],
                             Gold = inventory["gold"],
+                            Fields = fields,
                             ElapsedTime = (int)ts.TotalMilliseconds
                         };
                         responseJSON = JsonConvert.SerializeObject(inventoryResponse);
